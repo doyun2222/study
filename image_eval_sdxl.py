@@ -325,6 +325,20 @@ if not st.session_state['study_complete']:
     model_display_map = normalize_model_display_map(MODEL_FOLDER_NAMES)
     vote_options = MODEL_FOLDER_NAMES
 
+    key_base = f"{STUDY_NAME}::{username}::{rec_id}"
+
+    # 1. 개별 키 정의
+    vote_key_con = f"vote_con::{key_base}"
+    vote_key_align = f"vote_align::{key_base}"
+    vote_key_qual = f"vote_qual::{key_base}"
+    confirm_key = f"confirmed::{key_base}"
+
+    # 2. 오류가 났던 딕셔너리 정의 (여기서 정의되어야 st.radio에 전달됨)
+    vote_keys = {"con": vote_key_con, "align": vote_key_align, "qual": vote_key_qual}
+
+    # -------------------------------------------------------------
+    # ▲▲▲▲▲▲▲▲▲▲▲▲ 키 정의 끝 ▲▲▲▲▲▲▲▲▲▲▲▲
+
     # CSV 데이터 원본을 사용하기 위해 로드
 
     if 'mapping_df' not in st.session_state:
@@ -425,6 +439,9 @@ if not st.session_state['study_complete']:
 
     st.divider()
     st.subheader("평가")
+
+
+
 
 
     def _on_vote_change(rec_id, prompt, csv_path, keys, confirm_key, current_username):
