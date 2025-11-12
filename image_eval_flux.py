@@ -22,7 +22,14 @@ IMAGE_MAPPING_CSV_URL = st.secrets.get("IMAGE_MAPPING_CSV_URL", "")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 
 # ★★★ (필수) 이 CSV의 'model' 컬럼에 정의된 모델 폴더 이름 리스트 ★★★
+# ★★★ (필수) 이 CSV의 'model' 컬럼에 정의된 모델 폴더 이름 리스트 ★★★
 MODEL_FOLDER_NAMES = st.secrets.get("MODEL_FOLDER_NAMES", "")
+
+# ▼▼▼▼▼ 수정 1: GITHUB_BASE_URL 환경 변수 추가 ▼▼▼▼▼
+# CSV의 상대 경로와 합쳐져 완전한 RAW URL을 만듭니다.
+# (Secrets에 "https://raw.githubusercontent.com/doyun2222/study/main/" 형태로 입력해야 함)
+GITHUB_BASE_URL = st.secrets.get("GITHUB_BASE_URL", "")
+# ▲▲▲▲▲ GITHUB_BASE_URL 환경 변수 추가 ▲▲▲▲▲
 
 # 샘플링 설정
 NUM_SAMPLES = st.secrets.get("NUM_SAMPLES", 30)
@@ -93,22 +100,35 @@ def pick_first_key(d: dict, keys, default=""):
     return default
 
 
-def drive_preview_url(fid: str) -> str:
-    return f"https://drive.google.com/uc?export=view&id={fid}"
-
-
 def resolve_image_path(image_field: str):
+    """
+    CSV의 file_id(GitHub 상대 경로로 간주)를 GITHUB_BASE_URL과 결합하여 RAW URL 생성
+    """
     if not image_field: return None
     vf = str(image_field)
 
+    # Drive ID 또는 완전한 HTTP URL이 아닌 경우에만 상대 경로로 간주합니다.
+    if not vf.startswith("http") and not vf.startswith("gdrive:"):
+
+        # GITHUB_BASE_URL이 secrets에 설정되어 있는지 확인
+        if GITHUB_BASE_URL:
+            # 1. URL 인코딩 처리 (공백 -> %20)
+            encoded_path = vf.replace(' ', '%20')
+
+            # 2. BASE_URL과 상대 경로를 결합 (BASE_URL은 '/'로 끝나야 함)
+            return GITHUB_BASE_URL.rstrip('/') + '/' + encoded_path
+        else:
+            # BASE URL이 없으면 로드 불가
+            return None
+
+            # 기존 Drive ID 로직이 CSV에 남아있을 경우: Drive 로딩을 원하면 이 코드를 사용합니다.
     if vf.startswith("gdrive:"):
         fid = vf.split(":", 1)[1]
-        return drive_preview_url(fid)
+        # Drive ID를 처리하는 함수를 호출 (drive_preview_url을 그대로 사용)
+        return f"https://drive.google.com/uc?export=view&id={fid}"
 
-    if vf.startswith("http://") or vf.startswith("https://") or vf.startswith("data:image"):
-        return vf
-
-    return None
+        # 이미 완전한 URL이거나 데이터 URL이면 그대로 반환
+    return vf
 
 
 def normalize_model_display_map(model_names: List[str]) -> Dict[str, str]:
@@ -157,10 +177,13 @@ def load_image_mapping_csv(url: str) -> Optional[pd.DataFrame]:
         return None
 
 
+# load_and_sample_data 함수 내 수정
+
 @st.cache_data(show_spinner=True)
 def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images_per_prompt):
     """
     CSV DataFrame의 'model', 'prompt', 'base_name' 컬럼을 사용하여 데이터를 샘플링합니다.
+    (★ 프롬프트 폴더 샘플링 로직은 제거됨 ★)
     """
     records = []
     if mapping_df is None or mapping_df.empty: return []
@@ -168,14 +191,13 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
     df = mapping_df.copy()
     df_filtered = df[df['model'].isin(set(model_names))]
 
-    # 1. 공통 프롬프트 찾기
+    # 1. 공통 프롬프트 찾기 (이전과 동일)
     common_prompts = set()
     first_model = True
     for model_name in model_names:
         prompts = set(df_filtered[df_filtered['model'] == model_name]['prompt'].unique())
         if first_model:
-            common_prompts = prompts
-            first_model = False
+            common_prompts = prompts; first_model = False
         else:
             common_prompts.intersection_update(prompts)
 
@@ -183,13 +205,20 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
         st.error(f"CSV에서 모든 모델({model_names})에 공통으로 존재하는 프롬프트(prompt 컬럼)를 찾을 수 없습니다.")
         return []
 
-    # 2. 공통 프롬프트 N개 샘플링
-    folder_sample_size = min(num_prompt_samples, len(common_prompts))
-    sampled_prompts = random.sample(list(common_prompts), folder_sample_size)
+    # 2. 공통 프롬프트 N개 샘플링 로직 제거
 
+    # CSV에 있는 모든 공통 프롬프트를 사용합니다. (30개로 가정)
+    sampled_prompts = sorted(list(common_prompts))
+
+    # ------------------------------------------------------------------------
+    # ⚠️ 경고: CSV에 30개 초과 항목이 있다면 모두 로드됩니다.
+    # NUM_SAMPLES 설정은 무시됩니다.
+    # ------------------------------------------------------------------------
+
+    # for prompt_name in sampled_prompts: 루프는 CSV에 있는 모든 프롬프트에 대해 실행됩니다.
     for prompt_name in sampled_prompts:
         try:
-            # ▼ [핵심 수정 2a] 'base_name'을 사용하여 공통 파일명을 찾음
+            # ▼ 이미지 4개 샘플링 로직은 유지 ▼
             all_base_names_in_prompt = df_filtered[df_filtered['prompt'] == prompt_name]['base_name'].unique().tolist()
 
             if len(all_base_names_in_prompt) < num_images_per_prompt:
@@ -197,28 +226,30 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
                     f"Skipping '{prompt_name}': Only {len(all_base_names_in_prompt)} images available, need {num_images_per_prompt}.")
                 continue
 
-            # 샘플링도 'base_name' 기준으로 수행
+            # 프롬프트 내 4개 이미지 샘플링 (유지)
             sampled_base_names = random.sample(all_base_names_in_prompt, num_images_per_prompt)
             sampled_base_names.sort()
 
+            # ... (이하 모델별 이미지 매칭 로직은 동일하게 유지)
             model_images_dict = {}
             all_models_ok = True
 
             for model_name in model_names:
-                # 3. 모델, 프롬프트, 그리고 'base_name'을 기준으로 데이터 필터링
                 image_records = df_filtered[
                     (df_filtered['model'] == model_name) &
                     (df_filtered['prompt'] == prompt_name) &
-                    (df_filtered['base_name'].isin(sampled_base_names))  # <- 'base_name' 필터링
+                    (df_filtered['base_name'].isin(sampled_base_names))
                     ]
 
-                # 'base_name'을 인덱스로 사용하여 순서 맞춤
                 image_records = image_records.set_index('base_name').reindex(sampled_base_names).reset_index()
 
+                # ▼▼▼▼▼ 수정 3: paths 리스트 생성 로직을 'file_id' 값 그대로 사용하도록 변경 ▼▼▼▼▼
                 paths = [
-                    f"gdrive:{row['file_id']}"
+                    # file_id 컬럼에 저장된 값(GitHub 상대 경로)을 그대로 사용
+                    row['file_id']
                     for _, row in image_records.iterrows() if pd.notna(row['file_id'])
                 ]
+                # ▲▲▲▲▲ paths 리스트 생성 로직 수정 끝 ▲▲▲▲▲
 
                 if len(paths) != num_images_per_prompt:
                     st.warning(f"Warning: Model '{model_name}' missing images for prompt '{prompt_name}'. Skipping.")
@@ -238,6 +269,7 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
             st.warning(f"Error processing prompt '{prompt_name}': {e}")
             continue
 
+    # 순서만 무작위로 섞음 (프롬프트 세트 자체는 모두 포함)
     random.shuffle(records)
     return records
 
