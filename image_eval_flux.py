@@ -360,9 +360,9 @@ if not st.session_state['study_complete']:
     st.markdown(
         """
         <h2 style='color: #CC0000; text-align: center; font-size: 30px; line-height: 1.2;'> 선택 기준 </h2>
-        <p style='text-align: center; font-size: 25px;'>1. Subject 일관성: 어떤 *모델*(가로 행 A, B, C, D)의 이미지 4장이 '주요 대상'을 가장 일관되게 유지했는가?</p>
-        <p style='text-align: center; font-size: 25px;'>2. text-image 일치도: 어떤 *모델*(가로 행 A, B, C, D)의 이미지 4장이 text의 '내용'을 가장 잘 반영했나?</p>
-        <p style='text-align: center; font-size: 25px;'>3. 사실적인 이미지: 어떤 *모델*(가로 행 A, B, C, D)의 이미지 4장이 가장 사실적인가?.</p>
+        <p style='text-align: center; font-size: 25px;'>1. Subject 일관성: 어떤 *모델*(가로 행 A, B)의 이미지 4장이 '주요 대상'을 가장 일관되게 유지했는가? (의상, 외모, 머리색 등등)</p>
+        <p style='text-align: center; font-size: 25px;'>2. text-image 일치도: 어떤 *모델*(가로 행 A, B)의 이미지 4장이 text의 '내용'을 가장 잘 반영했나?</p>
+        <p style='text-align: center; font-size: 25px;'>3. 사실적인 이미지: 어떤 *모델*(가로 행 A, B)의 이미지 4장이 가장 사실적인가?.</p>
         """,
         unsafe_allow_html=True
     )
@@ -416,11 +416,16 @@ if not st.session_state['study_complete']:
     for j, model_name in enumerate(MODEL_FOLDER_NAMES):
         row_cols = st.columns([1.5] + [1] * num_images_in_each_model)
 
-        # ... (display_name 및 subheader 로직 유지) ...
+        display_name = model_display_map.get(model_name, model_name)
+        with row_cols[0]:
+            st.write("")
+            st.write("")
+            st.subheader(f"Model: {display_name}")
 
         try:
             current_model_images = model_images_data[model_name]
-            # ... (len 검사 유지) ...
+            if len(current_model_images) != num_images_in_each_model:
+                st.warning(f"모델 '{display_name}'의 이미지 개수가 예상치와 다릅니다. ({len(current_model_images)}개)")
 
             for i in range(num_images_in_each_model):
                 with row_cols[i + 1]:
