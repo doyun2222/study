@@ -341,6 +341,14 @@ if not st.session_state['study_complete']:
 
     # CSV 데이터 원본을 사용하기 위해 로드
 
+    # ▼▼▼▼▼▼▼▼▼▼ 이 위치에 함수 정의를 추가합니다. ▼▼▼▼▼▼▼▼▼▼
+    def format_model_name(model_name: str) -> str:
+        """모델 이름(예: flux_best)을 표시용 알파벳(예: A)으로 변환"""
+        return model_display_map.get(model_name, model_name)
+
+
+    # ▲▲▲▲▲▲▲▲▲▲ 함수 정의 끝 ▲▲▲▲▲▲▲▲▲▲
+
     if 'mapping_df' not in st.session_state:
         mapping_df = load_image_mapping_csv(IMAGE_MAPPING_CSV_URL)
         st.session_state['mapping_df'] = mapping_df
