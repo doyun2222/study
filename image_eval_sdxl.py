@@ -349,7 +349,7 @@ if not st.session_state['study_complete']:
     # 샘플링된 이미지의 순서에 맞춰 캡션을 가져오기 위해
     # sampled_image_names를 다시 계산하거나, records에 캡션 리스트를 저장해야 하지만,
     # 여기서는 간단히 unique_image_names를 사용하며, NUM_IMAGES_PER_PROMPT에 맞춥니다.
-
+    num_images_in_each_model = NUM_IMAGES_PER_PROMPT
     if len(unique_image_names) < num_images_in_each_model:
         # 이 시점에 에러가 나면 안되지만, 안전을 위해
         captions_list = unique_image_names + [f"MISSING {i}" for i in
