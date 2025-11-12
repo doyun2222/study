@@ -326,7 +326,7 @@ if not st.session_state['study_complete']:
     vote_options = MODEL_FOLDER_NAMES
 
     # CSV 데이터 원본을 사용하기 위해 로드
-    global mapping_df
+
     if 'mapping_df' not in st.session_state:
         mapping_df = load_image_mapping_csv(IMAGE_MAPPING_CSV_URL)
         st.session_state['mapping_df'] = mapping_df
