@@ -1,4 +1,4 @@
-# image_vote_mos_github_style.py - GitHub 컨벤션을 따르는 최종 이미지 평가 툴
+# image_vote_mos_github_style.py - GitHub 컨벤션을 따르는 최종 이미지 평가 툴 (Base Name 정규화 완료)
 
 import os
 import re
@@ -22,7 +22,7 @@ IMAGE_MAPPING_CSV_URL = st.secrets.get("IMAGE_MAPPING_CSV_URL", "")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 
 # ★★★ (필수) 이 CSV의 'model' 컬럼에 정의된 모델 폴더 이름 리스트 ★★★
-MODEL_FOLDER_NAMES = st.secrets.get("MODEL_FOLDER_NAMES", ["flux_best", "characonsist"])
+MODEL_FOLDER_NAMES = st.secrets.get("MODEL_FOLDER_NAMES", "")
 
 # 샘플링 설정
 NUM_SAMPLES = st.secrets.get("NUM_SAMPLES", 30)
@@ -40,7 +40,6 @@ def github_to_raw(url: str) -> str:
     if "raw.githubusercontent.com" in url or "drive.google.com" in url:
         return url
 
-    # GitHub blob/tree URL 패턴 매칭
     m = re.match(r"^https?://github\.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.*)$", url)
     if m:
         u, r, b, p = m.groups()
@@ -95,7 +94,7 @@ def pick_first_key(d: dict, keys, default=""):
 
 
 def drive_preview_url(fid: str) -> str:
-    return f"https://drive.google.com/uc?export=download&id={fid}&confirm=t"
+    return f"https://drive.google.com/uc?export=view&id={fid}"
 
 
 def resolve_image_path(image_field: str):
@@ -118,7 +117,7 @@ def normalize_model_display_map(model_names: List[str]) -> Dict[str, str]:
 
 
 # ==============================================================================
-# ====== 3. CSV 로드 및 샘플링 로직 (★ 로직은 이미지 평가 로직 유지 ★) ======
+# ====== 3. CSV 로드 및 샘플링 로직 (★ Base Name 정규화 적용 ★) ======
 # ==============================================================================
 
 @st.cache_data(show_spinner=True)
@@ -126,10 +125,8 @@ def load_image_mapping_csv(url: str) -> Optional[pd.DataFrame]:
     """외부(GitHub RAW 또는 Drive)의 mapping.csv 로드"""
     if not url: return None
 
-    # GitHub URL을 RAW URL로 변환
     raw_url = github_to_raw(url)
 
-    # ★ GitHub 토큰이 설정되어 있으면 헤더에 추가 (Private Repo 대응)
     headers = {}
     if GITHUB_TOKEN and "raw.githubusercontent.com" in raw_url:
         headers = {"Authorization": f"token {GITHUB_TOKEN}"}
@@ -146,6 +143,14 @@ def load_image_mapping_csv(url: str) -> Optional[pd.DataFrame]:
             raise RuntimeError(
                 f"mapping.csv에 필수 컬럼({required_cols})이 누락되었습니다.")
 
+        # ▼ [핵심 수정 1] name 컬럼 정규화 (쉼표 및 확장자 제거)
+        def normalize_filename(name):
+            if pd.isna(name): return name
+            name_str = str(name).strip().replace(',', '')  # 쉼표 제거
+            return os.path.splitext(name_str)[0]  # 확장자 제거 (예: .png, .jpg)
+
+        df['base_name'] = df['name'].apply(normalize_filename)  # 새로운 정규화된 컬럼 생성
+
         return df
     except Exception as e:
         st.error(f"Mapping CSV 로드 실패 ({raw_url}): {e}")
@@ -155,8 +160,7 @@ def load_image_mapping_csv(url: str) -> Optional[pd.DataFrame]:
 @st.cache_data(show_spinner=True)
 def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images_per_prompt):
     """
-    CSV DataFrame의 'model'과 'prompt' 컬럼을 사용하여 데이터를 샘플링하고 레코드를 구성합니다.
-    (로직은 이미지 평가 툴의 최종 버전 그대로 사용)
+    CSV DataFrame의 'model', 'prompt', 'base_name' 컬럼을 사용하여 데이터를 샘플링합니다.
     """
     records = []
     if mapping_df is None or mapping_df.empty: return []
@@ -185,28 +189,31 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
 
     for prompt_name in sampled_prompts:
         try:
-            all_files_in_prompt = df_filtered[df_filtered['prompt'] == prompt_name]['name'].unique().tolist()
+            # ▼ [핵심 수정 2a] 'base_name'을 사용하여 공통 파일명을 찾음
+            all_base_names_in_prompt = df_filtered[df_filtered['prompt'] == prompt_name]['base_name'].unique().tolist()
 
-            if len(all_files_in_prompt) < num_images_per_prompt:
+            if len(all_base_names_in_prompt) < num_images_per_prompt:
                 st.warning(
-                    f"Skipping '{prompt_name}': Only {len(all_files_in_prompt)} images available, need {num_images_per_prompt}.")
+                    f"Skipping '{prompt_name}': Only {len(all_base_names_in_prompt)} images available, need {num_images_per_prompt}.")
                 continue
 
-            sampled_image_names = random.sample(all_files_in_prompt, num_images_per_prompt)
-            sampled_image_names.sort()
+            # 샘플링도 'base_name' 기준으로 수행
+            sampled_base_names = random.sample(all_base_names_in_prompt, num_images_per_prompt)
+            sampled_base_names.sort()
 
             model_images_dict = {}
             all_models_ok = True
 
             for model_name in model_names:
-                # 3. 모델과 프롬프트 모두 일치하는 데이터 필터링
+                # 3. 모델, 프롬프트, 그리고 'base_name'을 기준으로 데이터 필터링
                 image_records = df_filtered[
                     (df_filtered['model'] == model_name) &
                     (df_filtered['prompt'] == prompt_name) &
-                    (df_filtered['name'].isin(sampled_image_names))
+                    (df_filtered['base_name'].isin(sampled_base_names))  # <- 'base_name' 필터링
                     ]
 
-                image_records = image_records.set_index('name').reindex(sampled_image_names).reset_index()
+                # 'base_name'을 인덱스로 사용하여 순서 맞춤
+                image_records = image_records.set_index('base_name').reindex(sampled_base_names).reset_index()
 
                 paths = [
                     f"gdrive:{row['file_id']}"
@@ -321,9 +328,8 @@ if not st.session_state['study_complete']:
 
     def format_model_name(model_name: str) -> str:
         """모델 이름(예: flux_best)을 표시용 알파벳(예: A)으로 변환"""
-        # model_display_map은 상위 스코프에서 정의된 맵을 사용합니다.
-        # 맵에 없으면 원본 이름을 반환합니다.
         return model_display_map.get(model_name, model_name)
+
 
     key_base = f"{STUDY_NAME}::{username}::{rec_id}"
     vote_key_con = f"vote_con::{key_base}"
@@ -372,8 +378,36 @@ if not st.session_state['study_complete']:
         st.error(f"첫 번째 모델의 이미지 개수가 예상치({num_images_in_each_model})와 다릅니다. ({len(model_A_images)}개)")
         st.stop()
 
+        # -------------------------------------------------------------
+        # ▼▼▼▼▼▼▼▼▼▼▼▼ 이 두 줄을 추가합니다. ▼▼▼▼▼▼▼▼▼▼▼▼
+        # -------------------------------------------------------------
+        # 현재 프롬프트에 해당하는 모든 레코드를 필터링 (모든 모델 포함)
+    prompt_records = mapping_df[mapping_df['prompt'] == prompt]
+        # 필터링된 레코드에서 중복되지 않는 파일 이름 (name 컬럼)을 가져와 정렬합니다.
+    unique_image_names = prompt_records['name'].unique().tolist()
+    unique_image_names.sort()
+        # -------------------------------------------------------------
+
+    # ▼▼▼▼▼▼▼▼▼▼▼▼ 여기를 아래 코드로 교체합니다 ▼▼▼▼▼▼▼▼▼▼▼▼
+
     for i in range(num_images_in_each_model):
-        header_cols[i + 1].subheader(f"Image {i + 1}")
+        # 1. 캡션으로 사용할 파일 이름을 안전하게 가져옵니다.
+        #    (unique_image_names는 원본 파일명을 담고 있습니다.)
+        img_caption_full = unique_image_names[i] if i < len(unique_image_names) else ""
+
+        # 2. 캡션에서 쉼표와 확장자를 제거한 순수 이름을 추출합니다.
+        img_caption_base = os.path.splitext(img_caption_full.replace(',', ''))[0]
+
+        # 3. 헤더를 "Text 1, 2, 3, 4"로 출력
+        header_cols[i + 1].subheader(f"Text {i + 1}")
+
+        # 4. 파일명(캡션)을 작은 폰트로 출력
+        header_cols[i + 1].markdown(
+            f"<div style='font-size: 14px; line-height: 1.3;'>{img_caption_base}</div>",
+            unsafe_allow_html=True
+        )
+
+    # ▲▲▲▲▲▲▲▲▲▲▲▲ 교체 끝 ▲▲▲▲▲▲▲▲▲▲▲▲
 
     st.divider()
 
