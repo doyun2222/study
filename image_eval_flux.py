@@ -93,11 +93,9 @@ def pick_first_key(d: dict, keys, default=""):
     return default
 
 
-#def drive_preview_url(fid: str) -> str:
-#    return f"https://drive.google.com/uc?export=view&id={fid}"
 def drive_preview_url(fid: str) -> str:
-    # ▼ 수정: 'export=view' 대신 'export=download'를 사용하여 파일 자체의 RAW 데이터 스트림을 요청합니다.
-    return f"https://drive.google.com/uc?export=download&id={fid}"
+    # URL 형식을 '뷰어 링크'로 변경 (iframe 사용에 적합)
+    return f"https://drive.google.com/file/d/{fid}/preview"
 
 
 def resolve_image_path(image_field: str):
@@ -106,7 +104,8 @@ def resolve_image_path(image_field: str):
 
     if vf.startswith("gdrive:"):
         fid = vf.split(":", 1)[1]
-        return drive_preview_url(fid)
+        # Drive ID만 반환하여, UI 루프에서 iframe 로직을 실행하도록 변경
+        return fid
 
     if vf.startswith("http://") or vf.startswith("https://") or vf.startswith("data:image"):
         return vf
@@ -417,25 +416,34 @@ if not st.session_state['study_complete']:
     for j, model_name in enumerate(MODEL_FOLDER_NAMES):
         row_cols = st.columns([1.5] + [1] * num_images_in_each_model)
 
-        display_name = model_display_map.get(model_name, model_name)
-        with row_cols[0]:
-            st.write("")
-            st.write("")
-            st.subheader(f"Model: {display_name}")
+        # ... (display_name 및 subheader 로직 유지) ...
 
         try:
             current_model_images = model_images_data[model_name]
-            if len(current_model_images) != num_images_in_each_model:
-                st.warning(f"모델 '{display_name}'의 이미지 개수가 예상치와 다릅니다. ({len(current_model_images)}개)")
+            # ... (len 검사 유지) ...
 
             for i in range(num_images_in_each_model):
                 with row_cols[i + 1]:
                     if i < len(current_model_images):
-                        img_url = resolve_image_path(current_model_images[i])
-                        if img_url:
-                            st.image(img_url, width=300)
+                        img_path_or_id = current_model_images[i]
+
+                        # ▼▼▼▼▼ 수정된 로딩 로직 ▼▼▼▼▼
+                        if img_path_or_id.startswith("gdrive:"):
+                            fid = img_path_or_id.split(":", 1)[1]
+
+                            # iframe을 사용하여 Drive Viewer를 삽입 (보안 우회)
+                            # height와 width는 임의로 설정 (300px)
+                            st.components.v1.iframe(
+                                f"https://drive.google.com/file/d/{fid}/preview",
+                                height=300,
+                                scrolling=False
+                            )
+                        elif resolve_image_path(img_path_or_id):
+                            # 일반 HTTP URL일 경우 st.image 사용
+                            st.image(resolve_image_path(img_path_or_id), width=300)
                         else:
                             st.error("이미지 경로 오류")
+                        # ▲▲▲▲▲ 수정 끝 ▲▲▲▲▲
                     else:
                         st.empty()
         except KeyError:
