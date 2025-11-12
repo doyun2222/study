@@ -9,6 +9,8 @@ import pandas as pd
 import streamlit as st
 import requests
 from typing import Tuple, Optional, List, Dict
+import base64 # <-- 상단에 import base64 추가 필요
+import json
 
 st.set_page_config(page_title="이미지 비교 평가 (GitHub & Drive CSV)", layout="wide")
 
@@ -117,6 +119,59 @@ def normalize_model_display_map(model_names: List[str]) -> Dict[str, str]:
     display_chars = ["A", "B", "C", "D", "E", "F"]
     return dict(zip(model_names, display_chars[:len(model_names)]))
 
+
+# Streamlit 앱이 액세스할 GitHub 레포지토리 정보 (Secrets에서 가져오지 않음. 코드로 지정)
+GITHUB_REPO_OWNER = "doyun2222"  # 당신의 GitHub 사용자 이름
+GITHUB_REPO_NAME = "study"  # 당신의 레포지토리 이름
+GITHUB_REPO_BRANCH = "main"  # 사용할 브랜치 이름 (main 또는 master)
+
+
+def upload_to_github(username: str, df: pd.DataFrame, file_basename: str, token: str):
+    """DataFrame을 CSV로 변환 후 GitHub에 업로드/커밋"""
+    if not token:
+        st.error("GitHub 업로드를 위해 GITHUB_TOKEN이 Secrets에 설정되어야 합니다.")
+        return False
+
+    # 최종 저장 경로 (예: results/image_folder_study_fff.csv)
+    file_path = f"results/{file_basename}"
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/contents/{file_path}"
+
+    # 1. CSV 데이터 준비 (base64 인코딩)
+    content = df.to_csv(index=False).encode('utf-8-sig')  # UTF-8 BOM으로 인코딩
+    content_base64 = base64.b64encode(content).decode('utf-8')
+
+    # 2. API 헤더 및 기존 파일 SHA 가져오기
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    sha = None
+    try:
+        r = requests.get(api_url + f"?ref={GITHUB_REPO_BRANCH}", headers=headers, timeout=10)
+        if r.status_code == 200:
+            sha = r.json().get('sha')
+    except requests.exceptions.RequestException:
+        pass
+
+        # 3. 커밋 데이터 구성
+    commit_message = f"업로드: {file_path} - 평가자: {username}"
+    data = {
+        "message": commit_message,
+        "content": content_base64,
+        "sha": sha,
+        "branch": GITHUB_REPO_BRANCH
+    }
+
+    # 4. API 호출 (PUT 요청)
+    try:
+        r = requests.put(api_url, headers=headers, data=json.dumps(data), timeout=30)
+        if r.status_code in [200, 201]:
+            st.success(f"평가 결과가 GitHub에 저장되었습니다: {file_path}")
+            return True
+        else:
+            st.error(f"GitHub 업로드 실패 (Code: {r.status_code}). 토큰 권한을 확인하세요.")
+            st.json(r.json())
+            return False
+    except requests.exceptions.RequestException as e:
+        st.error(f"GitHub API 통신 오류: {e}")
+        return False
 
 # ==============================================================================
 # ====== 3. CSV 로드 및 샘플링 로직 (★ Base Name 정규화 적용 ★) ======
@@ -643,19 +698,46 @@ elif st.session_state['study_complete']:
             button_text = f"💾 {username}님 집계 결과 저장 및 평가 기록 초기화"
 
             if st.button(button_text, type="primary", use_container_width=True):
-                try:
-                    summary_df.to_csv(summary_save_path, index=True, encoding='utf-8-sig')
-                    st.success(f"성공! {username}님의 집계 결과가 서버에 저장되었습니다:\n{summary_save_path}")
+                # 1. 요약 데이터와 상세 데이터를 준비
+                summary_df_to_save = summary_df.copy()
+                raw_votes_df_to_save = df_all.copy()
 
+                # 2. 로컬 저장 (Streamlit Cloud에서는 임시 저장 역할)
+                summary_save_path = csv_path_for(STUDY_NAME, username).replace(f"_{username}.csv",
+                                                                               f"_summary_{username}.csv")
+                summary_df_to_save.to_csv(summary_save_path, index=True, encoding='utf-8-sig')
+
+                user_progress_file_path = csv_path_for(STUDY_NAME, username)
+
+                # 3. GitHub 업로드 시도 (핵심)
+
+                # 상세 기록 업로드
+                raw_success = upload_to_github(
+                    username,
+                    raw_votes_df_to_save,
+                    f"{STUDY_NAME}_raw_votes_{username}.csv",  # 파일명
+                    GITHUB_TOKEN
+                )
+
+                # 요약 기록 업로드 (선택 사항)
+                summary_success = upload_to_github(
+                    username,
+                    summary_df_to_save.reset_index(),  # 요약은 인덱스를 컬럼으로 변환해야 깔끔
+                    f"{STUDY_NAME}_summary_{username}.csv",  # 파일명
+                    GITHUB_TOKEN
+                )
+
+                # 4. 업로드 성공 여부와 관계없이 로컬 초기화
+                if raw_success or summary_success:
                     if os.path.exists(user_progress_file_path):
-                        os.remove(user_progress_file_path)
-                        st.success(f"성공! '{username}'님의 평가 기록이 초기화되었습니다.")
-                        st.warning("새 평가를 시작하려면 사이드바에서 '평가 시작 / 재시작' 버튼을 누르세요.")
-                    else:
-                        st.warning(f"'{username}'님의 평가 기록 파일을 찾지 못했습니다. (이미 초기화되었을 수 있습니다)")
-
-                except Exception as e:
-                    st.error(f"저장 또는 초기화 중 오류 발생: {e}")
+                        try:
+                            os.remove(user_progress_file_path)
+                            st.success(f"성공! 평가 기록이 초기화되었습니다.")
+                        except Exception as e:
+                            st.error(f"로컬 파일 초기화 실패: {e}")
+                    st.warning("새 평가를 시작하려면 사이드바에서 '평가 시작 / 재시작' 버튼을 누르세요.")
+                else:
+                    st.error("GitHub 업로드에 실패했습니다. 로컬 다운로드 버튼을 사용해주세요.")
 
             st.subheader("개인PC로 다운로드")
 
