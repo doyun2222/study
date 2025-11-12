@@ -378,8 +378,36 @@ if not st.session_state['study_complete']:
         st.error(f"첫 번째 모델의 이미지 개수가 예상치({num_images_in_each_model})와 다릅니다. ({len(model_A_images)}개)")
         st.stop()
 
+        # -------------------------------------------------------------
+        # ▼▼▼▼▼▼▼▼▼▼▼▼ 이 두 줄을 추가합니다. ▼▼▼▼▼▼▼▼▼▼▼▼
+        # -------------------------------------------------------------
+        # 현재 프롬프트에 해당하는 모든 레코드를 필터링 (모든 모델 포함)
+    prompt_records = mapping_df[mapping_df['prompt'] == prompt]
+        # 필터링된 레코드에서 중복되지 않는 파일 이름 (name 컬럼)을 가져와 정렬합니다.
+    unique_image_names = prompt_records['name'].unique().tolist()
+    unique_image_names.sort()
+        # -------------------------------------------------------------
+
+    # ▼▼▼▼▼▼▼▼▼▼▼▼ 여기를 아래 코드로 교체합니다 ▼▼▼▼▼▼▼▼▼▼▼▼
+
     for i in range(num_images_in_each_model):
-        header_cols[i + 1].subheader(f"Image {i + 1}")
+        # 1. 캡션으로 사용할 파일 이름을 안전하게 가져옵니다.
+        #    (unique_image_names는 원본 파일명을 담고 있습니다.)
+        img_caption_full = unique_image_names[i] if i < len(unique_image_names) else ""
+
+        # 2. 캡션에서 쉼표와 확장자를 제거한 순수 이름을 추출합니다.
+        img_caption_base = os.path.splitext(img_caption_full.replace(',', ''))[0]
+
+        # 3. 헤더를 "Text 1, 2, 3, 4"로 출력
+        header_cols[i + 1].subheader(f"Text {i + 1}")
+
+        # 4. 파일명(캡션)을 작은 폰트로 출력
+        header_cols[i + 1].markdown(
+            f"<div style='font-size: 14px; line-height: 1.3;'>{img_caption_base}</div>",
+            unsafe_allow_html=True
+        )
+
+    # ▲▲▲▲▲▲▲▲▲▲▲▲ 교체 끝 ▲▲▲▲▲▲▲▲▲▲▲▲
 
     st.divider()
 
