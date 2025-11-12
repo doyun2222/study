@@ -94,7 +94,7 @@ def pick_first_key(d: dict, keys, default=""):
 
 
 def drive_preview_url(fid: str) -> str:
-    return f"https://drive.google.com/uc?export=download&id={fid}&confirm=t"
+    return f"https://drive.google.com/uc?export=view&id={fid}"
 
 
 def resolve_image_path(image_field: str):
