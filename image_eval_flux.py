@@ -288,7 +288,10 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
                 records.append({
                     "id": prompt_name,
                     "prompt": prompt_name,
-                    "model_images": model_images_dict
+                    "model_images": model_images_dict,
+                    # ▼▼▼▼▼ 이 라인을 추가합니다. ▼▼▼▼▼
+                    "sampled_base_names": sampled_base_names
+                    # ▲▲▲▲▲ 이 라인을 추가합니다. ▲▲▲▲▲
                 })
 
         except Exception as e:
@@ -435,25 +438,17 @@ if not st.session_state['study_complete']:
         st.error(f"첫 번째 모델의 이미지 개수가 예상치({num_images_in_each_model})와 다릅니다. ({len(model_A_images)}개)")
         st.stop()
 
-        # -------------------------------------------------------------
-        # ▼▼▼▼▼▼▼▼▼▼▼▼ 이 두 줄을 추가합니다. ▼▼▼▼▼▼▼▼▼▼▼▼
-        # -------------------------------------------------------------
-        # 현재 프롬프트에 해당하는 모든 레코드를 필터링 (모든 모델 포함)
-    prompt_records = mapping_df[mapping_df['prompt'] == prompt]
-        # 필터링된 레코드에서 중복되지 않는 파일 이름 (name 컬럼)을 가져와 정렬합니다.
-    unique_image_names = prompt_records['name'].unique().tolist()
-    unique_image_names.sort()
-        # -------------------------------------------------------------
+    caption_base_names = curr.get("sampled_base_names", [])
+
+    # num_images_in_each_model은 NUM_IMAGES_PER_PROMPT와 동일
+    num_images_in_each_model = NUM_IMAGES_PER_PROMPT
 
     # ▼▼▼▼▼▼▼▼▼▼▼▼ 여기를 아래 코드로 교체합니다 ▼▼▼▼▼▼▼▼▼▼▼▼
 
     for i in range(num_images_in_each_model):
         # 1. 캡션으로 사용할 파일 이름을 안전하게 가져옵니다.
-        #    (unique_image_names는 원본 파일명을 담고 있습니다.)
-        img_caption_full = unique_image_names[i] if i < len(unique_image_names) else ""
-
-        # 2. 캡션에서 쉼표와 확장자를 제거한 순수 이름을 추출합니다.
-        img_caption_base = os.path.splitext(img_caption_full.replace(',', ''))[0]
+        #    (unique_image_names 대신 caption_base_names를 사용합니다.)
+        img_caption_base = caption_base_names[i] if i < len(caption_base_names) else "MISSING"
 
         # 3. 헤더를 "Text 1, 2, 3, 4"로 출력
         header_cols[i + 1].subheader(f"Text {i + 1}")
