@@ -318,6 +318,13 @@ if not st.session_state['study_complete']:
     model_display_map = normalize_model_display_map(MODEL_FOLDER_NAMES)
     vote_options = MODEL_FOLDER_NAMES
 
+
+    def format_model_name(model_name: str) -> str:
+        """모델 이름(예: flux_best)을 표시용 알파벳(예: A)으로 변환"""
+        # model_display_map은 상위 스코프에서 정의된 맵을 사용합니다.
+        # 맵에 없으면 원본 이름을 반환합니다.
+        return model_display_map.get(model_name, model_name)
+
     key_base = f"{STUDY_NAME}::{username}::{rec_id}"
     vote_key_con = f"vote_con::{key_base}"
     vote_key_align = f"vote_align::{key_base}"
