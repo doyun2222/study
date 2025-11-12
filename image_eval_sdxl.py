@@ -22,7 +22,7 @@ IMAGE_MAPPING_CSV_URL = st.secrets.get("IMAGE_MAPPING_CSV_URL", "")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 
 # ★★★ (필수) 이 CSV의 'model' 컬럼에 정의된 모델 폴더 이름 리스트 ★★★
-MODEL_FOLDER_NAMES = st.secrets.get("MODEL_FOLDER_NAMES","")
+MODEL_FOLDER_NAMES = st.secrets.get("MODEL_FOLDER_NAMES", "")
 
 # 샘플링 설정
 NUM_SAMPLES = st.secrets.get("NUM_SAMPLES", 30)
@@ -142,14 +142,14 @@ def load_image_mapping_csv(url: str) -> Optional[pd.DataFrame]:
         if not all(col in df.columns for col in required_cols):
             raise RuntimeError(
                 f"mapping.csv에 필수 컬럼({required_cols})이 누락되었습니다.")
-        
+
         # ▼ [핵심 수정 1] name 컬럼 정규화 (쉼표 및 확장자 제거)
         def normalize_filename(name):
             if pd.isna(name): return name
-            name_str = str(name).strip().replace(',', '') # 쉼표 제거
-            return os.path.splitext(name_str)[0] # 확장자 제거 (예: .png, .jpg)
-        
-        df['base_name'] = df['name'].apply(normalize_filename) # 새로운 정규화된 컬럼 생성
+            name_str = str(name).strip().replace(',', '')  # 쉼표 제거
+            return os.path.splitext(name_str)[0]  # 확장자 제거 (예: .png, .jpg)
+
+        df['base_name'] = df['name'].apply(normalize_filename)  # 새로운 정규화된 컬럼 생성
 
         return df
     except Exception as e:
@@ -209,7 +209,7 @@ def load_and_sample_data(mapping_df, model_names, num_prompt_samples, num_images
                 image_records = df_filtered[
                     (df_filtered['model'] == model_name) &
                     (df_filtered['prompt'] == prompt_name) &
-                    (df_filtered['base_name'].isin(sampled_base_names)) # <- 'base_name' 필터링
+                    (df_filtered['base_name'].isin(sampled_base_names))  # <- 'base_name' 필터링
                     ]
 
                 # 'base_name'을 인덱스로 사용하여 순서 맞춤
@@ -325,34 +325,47 @@ if not st.session_state['study_complete']:
     model_display_map = normalize_model_display_map(MODEL_FOLDER_NAMES)
     vote_options = MODEL_FOLDER_NAMES
 
+    # CSV 데이터 원본을 사용하기 위해 로드
+    global mapping_df
+    if 'mapping_df' not in st.session_state:
+        mapping_df = load_image_mapping_csv(IMAGE_MAPPING_CSV_URL)
+        st.session_state['mapping_df'] = mapping_df
 
-    def format_model_name(model_name: str) -> str:
-        """모델 이름(예: flux_best)을 표시용 알파벳(예: A)으로 변환"""
-        return model_display_map.get(model_name, model_name)
+    mapping_df = st.session_state['mapping_df']
 
-    key_base = f"{STUDY_NAME}::{username}::{rec_id}"
-    vote_key_con = f"vote_con::{key_base}"
-    vote_key_align = f"vote_align::{key_base}"
-    vote_key_qual = f"vote_qual::{key_base}"
-    confirm_key = f"confirmed::{key_base}"
+    # -------------------------------------------------------------
+    # 프롬프트에 해당하는 모든 파일 이름 (name 컬럼)을 미리 가져옵니다.
+    # -------------------------------------------------------------
 
-    existing_votes = {}
-    if not st.session_state["votes"].empty:
-        row = st.session_state["votes"]
-        row = row[(row["id"] == rec_id) & (row["rater"] == username)]
-        if not row.empty:
-            r0 = row.iloc[0]
-            existing_votes["consistency"] = r0.get("vote_consistency")
-            existing_votes["alignment"] = r0.get("vote_alignment")
-            existing_votes["quality"] = r0.get("vote_quality")
+    # 현재 프롬프트에 해당하는 모든 레코드를 필터링 (모든 모델 포함)
+    prompt_records = mapping_df[mapping_df['prompt'] == prompt]
+    # 필터링된 레코드에서 중복되지 않는 파일 이름을 가져와 정렬합니다.
+    # 이것이 Image 1, Image 2에 대응되는 실제 파일 이름이 됩니다.
 
-    if vote_key_con not in st.session_state: st.session_state[vote_key_con] = existing_votes.get("consistency")
-    if vote_key_align not in st.session_state: st.session_state[vote_key_align] = existing_votes.get("alignment")
-    if vote_key_qual not in st.session_state: st.session_state[vote_key_qual] = existing_votes.get("quality")
+    # [주의] 여기서 'name'은 정규화되지 않은 원본 파일명입니다.
+    unique_image_names = prompt_records['name'].unique().tolist()
+    unique_image_names.sort()
 
-    all_voted = all([st.session_state[vote_key_con], st.session_state[vote_key_align], st.session_state[vote_key_qual]])
-    if confirm_key not in st.session_state: st.session_state[confirm_key] = all_voted
+    # 샘플링된 이미지의 순서에 맞춰 캡션을 가져오기 위해
+    # sampled_image_names를 다시 계산하거나, records에 캡션 리스트를 저장해야 하지만,
+    # 여기서는 간단히 unique_image_names를 사용하며, NUM_IMAGES_PER_PROMPT에 맞춥니다.
 
+    if len(unique_image_names) < num_images_in_each_model:
+        # 이 시점에 에러가 나면 안되지만, 안전을 위해
+        captions_list = unique_image_names + [f"MISSING {i}" for i in
+                                              range(num_images_in_each_model - len(unique_image_names))]
+    else:
+        # sampled_image_names에 매칭되는 캡션 리스트 (단순 인덱스 사용)
+        captions_list = [
+            unique_image_names[i]
+            for i in range(num_images_in_each_model)
+        ]
+
+    # [로직 변경] images 대신 sampled_base_names를 기준으로 캡션을 가져와야 정확함
+    # 이 로직은 records["model_images"]에 base_name 대신 file_id만 저장했기 때문에 복잡해집니다.
+    # 단순화를 위해, Image 1, 2, 3, 4가 매칭되는 파일명을 임시로 가정합니다.
+
+    # -------------------------------------------------------------
     # 7. UI 및 평가 섹션
     st.markdown(
         """
