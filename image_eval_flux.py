@@ -27,7 +27,7 @@ MODEL_FOLDER_NAMES = st.secrets.get("MODEL_FOLDER_NAMES", ["flux_best", "characo
 # 샘플링 설정
 NUM_SAMPLES = st.secrets.get("NUM_SAMPLES", 30)
 NUM_IMAGES_PER_PROMPT = st.secrets.get("NUM_IMAGES_PER_PROMPT", 4)
-MOS_RESULTS_DIR = "./sdxl_results"
+MOS_RESULTS_DIR = "./flux_results"
 os.makedirs(MOS_RESULTS_DIR, exist_ok=True)
 
 
