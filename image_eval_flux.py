@@ -93,8 +93,11 @@ def pick_first_key(d: dict, keys, default=""):
     return default
 
 
+#def drive_preview_url(fid: str) -> str:
+#    return f"https://drive.google.com/uc?export=view&id={fid}"
 def drive_preview_url(fid: str) -> str:
-    return f"https://drive.google.com/uc?export=view&id={fid}"
+    # ▼ 수정: 'export=view' 대신 'export=download'를 사용하여 파일 자체의 RAW 데이터 스트림을 요청합니다.
+    return f"https://drive.google.com/uc?export=download&id={fid}"
 
 
 def resolve_image_path(image_field: str):
